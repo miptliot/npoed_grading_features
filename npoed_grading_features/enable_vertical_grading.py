@@ -170,7 +170,7 @@ replaced = {
 
 
 def enable_vertical_grading(obj):
-    if not settings.FEATURES.get("ENABLE_VERTICAL_GRADING", False):
+    if not settings.FEATURES.get("ENABLE_GRADING_FEATURES", False):
         return obj
     name = obj.__name__
     if name in replaced:

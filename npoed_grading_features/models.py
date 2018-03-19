@@ -5,45 +5,29 @@ from django.db import models
 from opaque_keys.edx.keys import CourseKey
 
 
-class NpoedVGCache(object):
-    """
-    Keeps cached info if vertical grading is enabled for given course
-    """
-    KEY_BASE = "VerticalGradingEnabled.{}"
-    TIMEOUT = 300
-
-    @classmethod
-    def get(cls, course_id):
-        key = cls.KEY_BASE.format(course_id)
-        return cache.get(key)
-
-    @classmethod
-    def set(cls, course_id, value):
-        key = cls.KEY_BASE.format(course_id)
-        return cache.set(key, value, cls.TIMEOUT)
-
-
 class NpoedGradingFeatures(models.Model):
     """
     Defines for which courses which npoed grading features are enabled.
     """
-    # TODO: perhaps we should add cache
-
     course_id = models.CharField(max_length=255, unique=True)
     vertical_grading = models.BooleanField(default=False)
     passing_grade = models.BooleanField(default=False)
+    problem_best_score = models.BooleanField(default=False)
+
+    KEY_BASE = "NpoedGradingFeatures.{course_id}"
+    TIMEOUT = 300
 
     @classmethod
     def is_vertical_grading_enabled(cls, course_id):
-        cached = NpoedVGCache.get(course_id)
-        if cached is not None:
-            return cached
-        queried = cls._is_feature_enabled(course_id, 'vertical_grading')
-        NpoedVGCache.set(course_id, queried)
+        return cls._is_feature_enabled(course_id, 'vertical_grading')
 
     @classmethod
     def is_passing_grade_enabled(cls, course_id):
         return cls._is_feature_enabled(course_id, 'passing_grade')
+
+    @classmethod
+    def is_problem_best_score_enabled(cls, course_id):
+        return cls._is_feature_enabled(course_id, 'problem_best_score')
 
     @classmethod
     def enable_vertical_grading(cls, course_id):
@@ -54,6 +38,10 @@ class NpoedGradingFeatures(models.Model):
         cls._switch_feature(course_id, "passing_grade", True)
 
     @classmethod
+    def enable_problem_best_score_grade(cls, course_id):
+        cls._switch_feature(course_id, "problem_best_score", True)
+
+    @classmethod
     def disable_vertical_grading(cls, course_id):
         cls._switch_feature(course_id, "vertical_grading", False)
 
@@ -62,10 +50,20 @@ class NpoedGradingFeatures(models.Model):
         cls._switch_feature(course_id, "passing_grade", False)
 
     @classmethod
-    def get(cls, course_id):
+    def disable_problem_best_score_grade(cls, course_id):
+        cls._switch_feature(course_id, "problem_best_score", False)
+
+    @classmethod
+    def get(cls, course_id, allow_cached=False):
         cid = cls._get_id(course_id)
+        if allow_cached:
+            value = cls._get_cache(cid)
+            if value:
+                return value
         try:
-            return cls.objects.get(course_id=cid)
+            value = cls.objects.get(course_id=cid)
+            value._set_cache()
+            return value
         except cls.DoesNotExist:
             return None
 
@@ -78,10 +76,10 @@ class NpoedGradingFeatures(models.Model):
     @classmethod
     def _is_feature_enabled(cls, course_id, feature):
         cid = cls._get_id(course_id)
-        try:
-            grading_features = cls.objects.get(course_id=cid)
+        grading_features = cls.get(course_id=cid, allow_cached=True)
+        if grading_features:
             return getattr(grading_features, feature)
-        except cls.DoesNotExist:
+        else:
             return False
 
     @classmethod
@@ -90,6 +88,36 @@ class NpoedGradingFeatures(models.Model):
         grading_features, created = cls.objects.get_or_create(course_id=cid)
         setattr(grading_features, feature, state)
         grading_features.save()
+
+    def _to_json(self):
+        return json.dumps({
+            "course_id": self.course_id,
+            "passing_grade": self.passing_grade,
+            "vertical_grading": self.vertical_grading,
+            "problem_best_score": self.problem_best_score
+        })
+
+    @classmethod
+    def _from_json(cls, data):
+        return cls(**json.loads(data))
+
+    def _set_cache(self):
+        key = self.KEY_BASE.format(course_id=str(self.course_id))
+        cache.set(key, self._to_json(), self.TIMEOUT)
+
+    @classmethod
+    def _get_cache(cls, course_id):
+        key = cls.KEY_BASE.format(course_id=str(course_id))
+        data = cache.get(key)
+        if data:
+            return cls._from_json(data)
+
+    def save(self, *args, **kwargs):
+        super(NpoedGradingFeatures, self).save(*args, **kwargs)
+        self._set_cache()
+
+    def __str__(self):
+        return "NGF<{}>({}/{}/{})".format(self.course_id, int(self.passing_grade), int(self.problem_best_score), int(self.vertical_grading))
 
 
 class CoursePassingGradeUserStatus(models.Model):

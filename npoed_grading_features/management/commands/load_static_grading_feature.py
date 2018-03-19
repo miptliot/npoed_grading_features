@@ -32,10 +32,6 @@ _STATIC_BY_TYPE = {
         "lms.static.templates.vert_module.html"
     ]
 }
-_ENABLED_BY_TYPE = {
-    "passing_grade":"ENABLE_PASSING_GRADE",
-    "vertical_grading":"ENABLE_VERTICAL_GRADING"
-}
 
 
 class Command(BaseCommand):
@@ -56,11 +52,10 @@ class Command(BaseCommand):
         self.load_static(feature_type)
 
     def load_static(self, feature_type):
-        if not settings.FEATURES.get(_ENABLED_BY_TYPE[feature_type]):
+        if not settings.FEATURES.get("ENABLE_GRADING_FEATURES"):
             message = "Feature '{}' is not enabled in django settings."" \
-            ""Add key '{}' with value True, then run command again".format(
+            ""Add key 'ENABLE_GRADING_FEATURES' with value True, then run command again".format(
                 feature_type,
-                _ENABLED_BY_TYPE[feature_type]
             )
             raise CommandError(message)
 
