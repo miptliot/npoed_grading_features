@@ -1,8 +1,11 @@
 import json
+import logging
 from django.contrib.auth.models import User
 from django.core.cache import cache
 from django.db import models
+from jsonfield.fields import JSONField
 from opaque_keys.edx.keys import CourseKey
+from xmodule.modulestore.django import modulestore
 
 
 class NpoedGradingFeatures(models.Model):
@@ -52,6 +55,24 @@ class NpoedGradingFeatures(models.Model):
     @classmethod
     def disable_problem_best_score_grade(cls, course_id):
         cls._switch_feature(course_id, "problem_best_score", False)
+
+    @classmethod
+    def _push_vertical_grading_to_modulestore(cls, course_key, value):
+        course_key = CourseKey.from_string(cls._get_id(course_key))
+        value = bool(value)
+        store = modulestore()
+        try:
+            course = store.get_course(course_key)
+            course.vertical_grading = value
+            store.update_item(course, 0)
+        except Exception as e:
+            message = "Failed to push vertical grading value '{}' for course '{}'.".format(
+                str(value),
+                str(course_key)
+            )
+            message += "Are NpoedGradingFeatures enabled?"
+            message += "Exception:{}".format(str(e))
+            logging.error(message)
 
     @classmethod
     def get(cls, course_id, allow_cached=False):
@@ -114,6 +135,7 @@ class NpoedGradingFeatures(models.Model):
 
     def save(self, *args, **kwargs):
         super(NpoedGradingFeatures, self).save(*args, **kwargs)
+        self._push_vertical_grading_to_modulestore(self.course_id, self.vertical_grading)
         self._set_cache()
 
     def __str__(self):
@@ -129,7 +151,8 @@ class CoursePassingGradeUserStatus(models.Model):
     """
     course_id = models.CharField(max_length=255)
     user = models.ForeignKey(User)
-    fail_status_messages = models.TextField(
+    status_messages = JSONField(
+        default={},
         verbose_name="Message that specifies what user has to do to pass"
     )
 
@@ -145,18 +168,18 @@ class CoursePassingGradeUserStatus(models.Model):
             ))
         try:
             row = cls.objects.get(course_id=course_id, user=user)
-            messages = json.loads(row.fail_status_messages)
+            messages = row.status_messages
         except cls.DoesNotExist:
             messages = tuple("You progress is not processed yet")
         return messages
 
     @classmethod
-    def set_passing_grade_status(cls, course_key, user, fail_status_messages):
+    def set_passing_grade_status(cls, course_key, user, status_messages):
         course_id = str(course_key)
         if not NpoedGradingFeatures.is_passing_grade_enabled(course_id):
             raise ValueError("Passing grade is not enabled for course {}.".format(
                 course_id
             ))
         row, created = cls.objects.get_or_create(course_id=course_id, user=user)
-        row.fail_status_messages = json.dumps(fail_status_messages)
+        row.status_messages = status_messages
         row.save()
