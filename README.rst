@@ -32,12 +32,12 @@ Vertical Grading Feature Installation
 
 2. Apply decorator 'enable_vertical_grading' to the next classes/functions
 
-    * lms.djangoapps.grades.new.subsection_grade.py: SubsectionGrade
-    * lms.djangoapps.grades.new.subsection_grade.py: ZeroSubsectionGrade
-    * common.lib.xmodule.xmodule.graders.py: AssignmentFormatGrader
+    * lms.djangoapps.grades.new.subsection_grade.py: CourseGradeBase
+    * common.lib.xmodule.xmodule: CourseFields
     * common.lib.xmodule.xmodule.vertical_block.py: VerticalBlock
+    * common.lib.xmodule.xmodule.graders.py: AssignmentFormatGrader
     * cms.djangoapps.contentstore.views.item.py: create_xblock_info
-
+    * cms.djangoapps.models.settings.py: CourseMetadata
 
   Example:
   ::
@@ -70,6 +70,8 @@ Vertical Grading Feature Installation
 
 
 6. (Optional) Update staticfiles
+
+8. (Optional) Set variable VERTICAL_GRADING_DEFAULT at SETTINGS to True/False. Works for courses which don't have records at NpoedGradingFeatures model. Default is False.
 
 
 Passing Grade Feature Installation

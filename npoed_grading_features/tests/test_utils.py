@@ -1,11 +1,17 @@
+from collections import namedtuple
+from openedx.core.djangolib.testing.utils import get_mock_request
+from student.tests.factories import UserFactory
 from xmodule.modulestore.tests.factories import CourseFactory, ItemFactory
 from xmodule.partitions.partitions import (
-    Group, UserPartition, MINIMUM_STATIC_PARTITION_ID
+    UserPartition, MINIMUM_STATIC_PARTITION_ID
 )
 
 from lms.djangoapps.grades.tests.utils import answer_problem
 from ..models import NpoedGradingFeatures
-from ..utils import _find_worst_score
+from ..utils import find_drop_index
+
+
+TestGrade = namedtuple('TestGrade', ["earn", "max", "weight"])
 
 
 class ContentGroupsMixin(object):
@@ -173,44 +179,33 @@ class BuildCourseMixin(object):
             return all_earned, all_max
 
         def grade_subsection(subsection_tree):
-            element_earned, element_max = [], []
-
+            grades = []
             for unit_name, unit_pair in subsection_tree.iteritems():
                 weight, unit_tree = unit_pair
                 current_earned, current_max = get_unit_problem_pairs(unit_tree)
-                if not current_max:
-                    continue
-                if enable_vertical:
-                    if not weight:
-                        continue
-                    current_earned = [sum(current_earned)*weight/sum(current_max)]
-                    current_max = [weight]
-                element_earned.extend(current_earned)
-                element_max.extend(current_max)
-            if not element_max:
-                return None
-            return zip(element_earned, element_max)
+                if not enable_vertical:
+                    weight = 1
+                if weight and current_max:
+                    grades.append(TestGrade(sum(current_earned), sum(current_max), weight))
 
-        def compute_subsection_percent(pairs):
-            if pairs:
-                return sum(x[0] for x in pairs) / sum(x[1] for x in pairs)
+            if enable_vertical:
+                return grades
+            subsection_grade = TestGrade(sum([x.earn for x in grades]), sum([x.max for x in grades]), 1)
+            return [subsection_grade]
 
-        def drop_minimal_vertical_from_subsection_grades_mimic(tuple_of_subsection_unit_score_pairs):
-            """
-            :param tuple_of_subsection_unit_score_pairs_lists:
-                (
-                    [(1,3), (0,1), (None, None)],
-                    [(1,1, (1,10)]
-                )
-            """
-            _tree = {}
-            for subsection_num, subsection_list in enumerate(tuple_of_subsection_unit_score_pairs):
-                subsection_dict = dict((num, grade) for num, grade in enumerate(subsection_list))
-                _tree[subsection_num] = subsection_dict
+        def drop_minimal(grades_list):
+            pc = [x.earn/x.max for x in grades_list]
+            w = [x.weight for x in grades_list]
+            ind = find_drop_index(pc, w)
+            grades_list.pop(ind)
 
-            best_drop_index = _find_worst_score(_tree)
-            if best_drop_index is not None:
-                tuple_of_subsection_unit_score_pairs[best_drop_index[0]].pop(best_drop_index[1])
+        def weighted_score(grades_list):
+            percent = lambda x: x.earn/x.max if x.max else 0
+            top = sum([percent(g)*g.weight for g in grades_list])
+            bottom = sum([g.weight for g in grades_list])
+            if not bottom:
+                return 0
+            return top/bottom
 
         score_by_assignment_category = {}
         for _, section_tree in tree.iteritems():
@@ -220,31 +215,22 @@ class BuildCourseMixin(object):
                     continue
                 if assignment_category not in score_by_assignment_category:
                     score_by_assignment_category[assignment_category] = []
-                subsection_score = grade_subsection(subsection_tree)
-                if subsection_score is not None:
-                    score_by_assignment_category[assignment_category].append(subsection_score)
+                grades = grade_subsection(subsection_tree)
+                score_by_assignment_category[assignment_category].extend(grades)
+
         course_score = 0
         assignment_category_meta = dict(
             ((x["type"], {"weight": x["weight"], "drop_count": x["drop_count"]})
-            for x in self.course.grading_policy["GRADER"])
+             for x in self.course.grading_policy["GRADER"])
         )
         for assignment_category in score_by_assignment_category:
-            if enable_vertical:
-                for _ in range(int(assignment_category_meta[assignment_category]["drop_count"])):
+            drop_count = int(assignment_category_meta[assignment_category]["drop_count"])
+            weight = assignment_category_meta[assignment_category]["weight"]
 
-                    drop_minimal_vertical_from_subsection_grades_mimic(score_by_assignment_category[assignment_category])
-            subsection_percents = [compute_subsection_percent(x) for x in score_by_assignment_category[assignment_category]]
-            subsection_percents = sorted(subsection_percents, key=lambda x: -1 if x is None else x)
-            if not enable_vertical:
-                start_id = assignment_category_meta[assignment_category]["drop_count"]
-                subsection_percents = subsection_percents[start_id::]
-
-            if subsection_percents:
-                weight = assignment_category_meta[assignment_category]["weight"]
-                subsection_percents = [ x for x in subsection_percents if x is not None]
-                average_score = sum(subsection_percents)/len(subsection_percents) if subsection_percents else 0
-                assignment_score = weight * average_score
-                course_score += assignment_score
+            for _ in range(drop_count):
+                drop_minimal(score_by_assignment_category[assignment_category])
+            assignment_score = weighted_score(score_by_assignment_category[assignment_category])
+            course_score += assignment_score * weight
 
         course_score = round(course_score * 100 + 0.05) / 100
         return course_score
@@ -252,3 +238,6 @@ class BuildCourseMixin(object):
     def _enable_if_needed(self, enable_vertical):
         if enable_vertical:
             NpoedGradingFeatures.enable_vertical_grading(str(self.course.id))
+            # needed in tests only
+            self.course.vertical_grading = True
+            #self.store.update_item(self.course, 0)

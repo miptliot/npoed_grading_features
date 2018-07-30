@@ -1,6 +1,6 @@
 import ddt
 from mock import patch
-
+from django.conf import settings
 from openedx.core.djangolib.testing.utils import get_mock_request
 
 from lms.djangoapps.grades.new.course_grade_factory import CourseGradeFactory, CourseData
@@ -14,6 +14,7 @@ from xmodule.modulestore.tests.django_utils import ModuleStoreTestCase, SharedMo
 from .test_utils import BuildCourseMixin, ContentGroupsMixin
 
 
+@patch.dict(settings.FEATURES, {'PERSISTENT_GRADES_ENABLED_FOR_ALL_TESTS': False})
 class TestExpectedGrading(ModuleStoreTestCase, BuildCourseMixin):
     """
     Check that our testing method in BuildCourseMixin correctly calculates grade
@@ -108,7 +109,7 @@ class TestExpectedGrading(ModuleStoreTestCase, BuildCourseMixin):
         model_calculated_pc = self._grade_tree(tree, enable_vertical=False)
         self.assertEqual(pc, model_calculated_pc)
 
-
+@patch.dict(settings.FEATURES, {'PERSISTENT_GRADES_ENABLED_FOR_ALL_TESTS': False})
 @ddt.ddt
 class TestCourseBuilding(ModuleStoreTestCase, BuildCourseMixin):
     """
@@ -138,15 +139,16 @@ class TestCourseBuilding(ModuleStoreTestCase, BuildCourseMixin):
                 "b": ("Homework", {
                     "d": (0., {"h": (2., 5.), "i": (3., 5.),}),
                     "e": (1., {"j": (0., 1.), "k": (None, None), "l":(1.,3)}),
-                    "f": (0., {"m":(None, None)})
+                    "f": (0., {"m": (None, None)})
                 }),
                 "c": ("Homework", {
                     "g": (0, {"n": (6., 10)})
                 })
             }
         }
-        self._enable_if_needed(enable_vertical)
         self._build_from_tree(tree)
+        self._enable_if_needed(enable_vertical)
+
         self._check_tree(tree, self.course)
         course_grade = CourseGradeFactory().create(self.request.user, self.course)
         pc = course_grade.percent
@@ -164,6 +166,7 @@ class TestCourseBuilding(ModuleStoreTestCase, BuildCourseMixin):
         self.assertEqual(pc, model_calculated_pc)
 
 
+@patch.dict(settings.FEATURES, {'PERSISTENT_GRADES_ENABLED_FOR_ALL_TESTS': False})
 @ddt.ddt
 class TestVerticalGrading(ModuleStoreTestCase, BuildCourseMixin, ContentGroupsMixin):
     """
@@ -190,8 +193,8 @@ class TestVerticalGrading(ModuleStoreTestCase, BuildCourseMixin, ContentGroupsMi
             }
         }
         self._update_grading_policy()
-        self._enable_if_needed(enable_vertical)
         self._build_from_tree(tree)
+        self._enable_if_needed(enable_vertical)
         self._check_tree(tree, self.course)
         pc = CourseGradeFactory().create(self.request.user, self.course).percent
         model_calculated_pc = self._grade_tree(tree, enable_vertical)
@@ -211,8 +214,8 @@ class TestVerticalGrading(ModuleStoreTestCase, BuildCourseMixin, ContentGroupsMi
             }
         }
         self._update_grading_policy()
-        self._enable_if_needed(enable_vertical)
         self._build_from_tree(tree)
+        self._enable_if_needed(enable_vertical)
         self._check_tree(tree, self.course)
         pc = CourseGradeFactory().create(self.request.user, self.course).percent
         model_calculated_pc = self._grade_tree(tree, enable_vertical)
@@ -228,13 +231,13 @@ class TestVerticalGrading(ModuleStoreTestCase, BuildCourseMixin, ContentGroupsMi
         tree = {
             "a": {
                 "b": (None, {
-                    "c": (0., {"d": (0, 1.), "e": (0, 1.)}),
+                    "c": (1., {"d": (0, 1.), "e": (0, 1.)}),
                 }),
             }
         }
         self._update_grading_policy()
-        self._enable_if_needed(enable_vertical)
         self._build_from_tree(tree)
+        self._enable_if_needed(enable_vertical)
         self._check_tree(tree, self.course)
         pc = CourseGradeFactory().create(self.request.user, self.course).percent
         model_calculated_pc = self._grade_tree(tree, enable_vertical)
@@ -257,10 +260,13 @@ class TestVerticalGrading(ModuleStoreTestCase, BuildCourseMixin, ContentGroupsMi
             }
         }
         self._update_grading_policy()
-        self._enable_if_needed(enable_vertical)
         self._build_from_tree(tree)
+        self._enable_if_needed(enable_vertical)
         self._check_tree(tree, self.course)
+        # TODO: somehow .create doesn't work. Why?
+        # pc = CourseGradeFactory().create(self.request.user, self.course).percent
         pc = CourseGradeFactory().create(self.request.user, self.course).percent
+
         model_calculated_pc = self._grade_tree(tree, enable_vertical)
         self.assertEqual(pc, model_calculated_pc)
         expected_pc = 0.8 if enable_vertical else 0.5
@@ -287,8 +293,8 @@ class TestVerticalGrading(ModuleStoreTestCase, BuildCourseMixin, ContentGroupsMi
             }
         }
         self._update_grading_policy()
-        self._enable_if_needed(enable_vertical)
         self._build_from_tree(tree)
+        self._enable_if_needed(enable_vertical)
         self._check_tree(tree, self.course)
 
         pc = CourseGradeFactory().create(self.request.user, self.course).percent
@@ -337,19 +343,22 @@ class TestVerticalGrading(ModuleStoreTestCase, BuildCourseMixin, ContentGroupsMi
                 "Pass": 0.5,
             },
         }
+        self._build_from_tree(tree)
         self._update_grading_policy(grading_policy)
         self._enable_if_needed(enable_vertical)
-        self._build_from_tree(tree)
         self._check_tree(tree, self.course)
 
+        # TODO: somehow .create doesn't work. Why?
+        # pc = CourseGradeFactory().create(self.request.user, self.course).percent
         pc = CourseGradeFactory().create(self.request.user, self.course).percent
-        model_calculated_pc = self._grade_tree(tree, enable_vertical)
-        self.assertEqual(pc, model_calculated_pc)
 
         expected_pc_vertical = 0.4*((1.*.5 + 0.*.5)/1) + 0.6*((1.*1 + .5*3)/4)
         expected_pc_non_vertical = 0.4*.5 + 0.6*0.75
         expected_pc = expected_pc_vertical if enable_vertical else expected_pc_non_vertical
         self.assertEqual(pc, round(expected_pc + 0.05/100, 2)) # edx grade rounding, fails otherwise
+
+        model_calculated_pc = self._grade_tree(tree, enable_vertical)
+        self.assertEqual(pc, model_calculated_pc)
 
     @ddt.data(True, False)
     def test_droppable_subsections(self, enable_vertical):
@@ -358,17 +367,17 @@ class TestVerticalGrading(ModuleStoreTestCase, BuildCourseMixin, ContentGroupsMi
         """
         tree = {
             "a": {
-                "b1": ("Homework", {  # NW 0.5; W: 0.8
-                    "c1": (1., {"d1": (0., 1.), "e1": (0., 1.)}), # W:0/1
-                    "f1": (4., {"g1": (1., 1.), "h1": (1., 1.)}), # W:4/4
+                "b1": ("Homework", {  # NW 0.5;
+                    "c1": (1., {"d1": (0., 1.), "e1": (0., 1.)}), # W:0.
+                    "f1": (4., {"g1": (1., 1.), "h1": (1., 1.)}), # W:1.
                 }),
-                "b2": ("Homework", { # NW 0.75: W: 1
-                    "c2": (1., {"d2": (1., 1.), "e2": (1., 1.)}), # W:1/1
-                    "f2": (4., {"g2": (1., 1.), "h2": (0., 1.)}), # W:2/4 -
+                "b2": ("Homework", { # NW 0.75
+                    "c2": (1., {"d2": (1., 1.), "e2": (1., 1.)}), # W:1.
+                    "f2": (4., {"g2": (1., 1.), "h2": (0., 1.)}), # W:0.5
                 }),
-                "b3": ("Homework", { # NW 0.25; W: 0.5
-                    "c3": (1., {"d3": (0., 1.), "e3": (1., 1.)}), # W:0.5/1
-                    "f3": (4., {"g3": (0., 1.), "h3": (0., 1.)}), # W:0./4 -
+                "b3": ("Homework", { # NW 0.25;
+                    "c3": (1., {"d3": (0., 1.), "e3": (1., 1.)}), # W:0.5
+                    "f3": (4., {"g3": (0., 1.), "h3": (0., 1.)}), # W:0.
                 }),
             }
         }
@@ -388,19 +397,25 @@ class TestVerticalGrading(ModuleStoreTestCase, BuildCourseMixin, ContentGroupsMi
             },
         }
 
+        self._build_from_tree(tree)
         self._update_grading_policy(grading_policy)
         self._enable_if_needed(enable_vertical)
-        self._build_from_tree(tree)
         self._check_tree(tree, self.course)
 
         pc = CourseGradeFactory().create(self.request.user, self.course).percent
-        model_calculated_pc = self._grade_tree(tree, enable_vertical)
-        self.assertEqual(pc, model_calculated_pc)
 
-        expected_pc_vertical = (1. + 0.8 + 0.5)/3.
+        #checked all drop index - the best is [1, 1, 1, 0, 1, 0]
+        drop = [1, 1, 1, 0, 1, 0]
+        weight = [1, 4, 1, 4, 1, 4]
+        gpc = [0, 1, 1, 0.5, 0.5, 0]
+        expected_pc_vertical = sum([drop[n]*weight[n]*gpc[n] for n in range(len(gpc))])
+        expected_pc_vertical /=sum([drop[n]*weight[n]       for n in range(len(gpc))])
         expected_pc_non_vertical = 0.75
         expected_pc = expected_pc_vertical if enable_vertical else expected_pc_non_vertical
         self.assertEqual(pc, round(expected_pc + 0.05 / 100, 2))
+
+        model_calculated_pc = self._grade_tree(tree, enable_vertical)
+        self.assertEqual(pc, model_calculated_pc)
 
     @ddt.data(True, False)
     def test_drop_last_element(self, enable_vertical):
@@ -431,15 +446,14 @@ class TestVerticalGrading(ModuleStoreTestCase, BuildCourseMixin, ContentGroupsMi
             },
         }
 
+        self._build_from_tree(tree)
         self._update_grading_policy(grading_policy)
         self._enable_if_needed(enable_vertical)
-        self._build_from_tree(tree)
         self._check_tree(tree, self.course)
 
         pc = CourseGradeFactory().create(self.request.user, self.course).percent
         model_calculated_pc = self._grade_tree(tree, enable_vertical)
         self.assertEqual(pc, model_calculated_pc)
-
         self.assertEqual(pc, 0)
 
     @ddt.data(True, False)
@@ -475,9 +489,9 @@ class TestVerticalGrading(ModuleStoreTestCase, BuildCourseMixin, ContentGroupsMi
             },
         }
 
+        self._build_from_tree(tree)
         self._update_grading_policy(grading_policy)
         self._enable_if_needed(enable_vertical)
-        self._build_from_tree(tree)
         self._check_tree(tree, self.course)
 
         pc = CourseGradeFactory().create(self.request.user, self.course).percent
@@ -520,14 +534,16 @@ class TestVerticalGrading(ModuleStoreTestCase, BuildCourseMixin, ContentGroupsMi
                 "Pass": 0.5,
             },
         }
+        self._build_from_tree(tree)
         self._update_grading_policy(grading_policy)
         self._enable_if_needed(enable_vertical)
-        self._build_from_tree(tree)
         self._check_tree(tree, self.course)
         pc = CourseGradeFactory().create(self.request.user, self.course).percent
         model_calculated_pc = self._grade_tree(tree, enable_vertical)
         self.assertEqual(pc, model_calculated_pc)
-        expected_pc = (1. + 0.5)/2 if enable_vertical else 1
+        #drop with weight 4
+        grade_round = lambda x: round(x + 0.05 / 100, 2)
+        expected_pc = grade_round ((1.*1 + 1*1 + 0*1)/(1+1+1)) if enable_vertical else 1
         self.assertEqual(pc, expected_pc)
 
     @ddt.data(True, False)
@@ -559,8 +575,8 @@ class TestVerticalGrading(ModuleStoreTestCase, BuildCourseMixin, ContentGroupsMi
             },
         }
         self._update_grading_policy(grading_policy)
-        self._enable_if_needed(enable_vertical)
         self._build_from_tree(tree)
+        self._enable_if_needed(enable_vertical)
         self._check_tree(tree, self.course)
         pc = CourseGradeFactory().create(self.request.user, self.course).percent
         model_calculated_pc = self._grade_tree(tree, enable_vertical)
