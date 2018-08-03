@@ -1,6 +1,5 @@
 from django.conf import settings
 
-from courseware.models import StudentModule
 from .models import NpoedGradingFeatures
 from .utils import patch_function
 
@@ -10,6 +9,7 @@ def set_score(user_id, usage_key, score, max_score):
     Set the score and max_score for the specified user and xblock usage
     if score is rising or grade is new
     """
+    from courseware.models import StudentModule
     student_module, created = StudentModule.objects.get_or_create(
         student_id=user_id,
         module_state_key=usage_key,

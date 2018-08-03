@@ -189,6 +189,8 @@ replaced = {
 
 
 def enable_vertical_grading(obj):
+    if not getattr(settings, 'FEATURES', None):
+        return obj
     if not settings.FEATURES.get("ENABLE_GRADING_FEATURES", False):
         return obj
     name = obj.__name__
